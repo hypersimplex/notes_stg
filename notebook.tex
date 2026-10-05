@@ -1,0 +1,587 @@
+\documentclass[8pt]{extarticle}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{mathtools}
+\usepackage{tikz}
+\usepackage[ruled,vlined,linesnumbered,lined,boxed,commentsnumbered]{algorithm2e}
+\usepackage{algpseudocode}
+\usepackage{siunitx}
+\usepackage{subcaption}
+\usepackage{multirow}
+\usepackage{multicol}
+\usepackage{fancyhdr}
+
+\usepackage{alltt}
+
+\usepackage{parskip} %turns off paragraph indent
+\pagestyle{fancy}
+
+\usepackage{xcolor}
+\usepackage{mdframed}
+
+\usepackage[small]{titlesec}
+
+\usepackage{inconsolata}
+
+\usepackage{hanging}
+
+\usepackage{listings}
+% Set font styles globally
+\lstset{
+  basicstyle=\ttfamily,          % Small, monospaced font
+  commentstyle=\color{gray}\itshape,   % Italics for comments
+  keywordstyle=\color{blue}\bfseries,   % Bold for programming keywords
+  mathescape=true,
+  breaklines=true
+}
+
+\usepackage{tabularray}
+
+\usetikzlibrary{positioning}
+\usetikzlibrary{shapes,arrows}
+% Define block styles
+\tikzset{
+    block/.style={rectangle, draw, line width=0.5mm, black, text width=5em, text centered,
+                  rounded corners, minimum height=2em},
+    line/.style={draw, -latex}
+}% <- if you insist in using this in the document add this % here.
+
+\DeclareMathOperator*{\argmin}{argmin}
+\newcommand*{\argminl}{\argmin\limits}
+
+\usepackage[small]{titlesec}
+
+% \newcommand{\mathleft}{\@fleqntrue\@mathmargin0pt}
+% \newcommand{\R}{\mathbb{R}}
+% \newcommand{\Z}{\mathbb{Z}} 
+% \newcommand{\N}{\mathbb{N}}
+% \newcommand{\ppartial}[2]{\frac{\partial #1}{\partial #2}}
+% \newcommand{\p}{\partial}
+% \newcommand{\te}[1]{\text{#1 }}
+% \newcommand{\norm}[1]{\|#1\|}
+
+\newcommand*{\vrectangle}{{\setlength{\fboxsep}{0pt}\fbox{\phantom{l}}}}
+
+\setcounter{MaxMatrixCols}{20}
+
+% remove excess vertical space for align equations
+\setlength{\abovedisplayskip}{0pt}
+\setlength{\belowdisplayskip}{0pt}
+\setlength{\abovedisplayshortskip}{0pt}
+\setlength{\belowdisplayshortskip}{0pt}
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{corollary}{Corollary}[theorem]
+\newtheorem{lemma}[theorem]{Lemma}
+
+\begin {document}
+
+\lhead{Notes - STG, Bill/Yuan Liu}
+  
+\begin{multicols*}{2}
+
+  \section{Preliminary}
+
+  Condensed notes from references:
+  \begin{itemize}
+  \item The Implementation of Functional Programming Languages \cite{peyton1987}
+  \item Implementing Lazy Functional Languages on Stock Hardware: The Spineless Tagless G-machine \cite{peyton1992}
+  \end{itemize}
+
+  Notation:
+
+  \begin{lstlisting}
+    $\rho$[x $\mapsto$ y] $\equiv$ augmenting env $\rho$ with additional mapping x $\mapsto$ y
+
+    val $\rho$ $\sigma$ k = k, k is a literal
+    val $\rho$ $\sigma$ k = $\rho$[k], k is in $\rho$
+    val $\rho$ $\sigma$ k = $\sigma$[k], k is in $\sigma$
+    val $\rho$ $\sigma$ ks = [(val $\rho$ $\sigma$ k) for k in ks]
+
+    $\rho$ a $\equiv$ query env $\rho$ with key a
+    $\rho$ as $\equiv$ [$\rho$ a for a in as]
+    h a $\equiv$ query heap h with key(address) a
+    h as $\equiv$ [h a for a in as]
+
+    (vs \n xs $\mapsto$ e) ws_f $\equiv$ closure that is non-updatable, with parameters xs and free variable parameters vs bound with values ws_f; note: closure with len(xs) > 0 $\implies$ it is non-updatable
+
+    (vs \u {} $\mapsto$ e) ws_f $\equiv$ closure that is updatable
+  \end{lstlisting}
+  
+  \section{Machine State}
+
+  a tuple of:
+
+  \begin{itemize}
+  \item code
+  \item argument stack: for formal parameters of lambdas
+  \item return stack: for continuations
+  \item update stack: for updatable closure / thunk
+  \item heap: for locals, closures
+  \item globals: for top-level variables/binders
+  \end{itemize}
+
+  initial state:
+
+  \begin{lstlisting}
+    (eval (main {}) {},
+     [],
+     [],
+     [],
+     {...; $a_{i} \mapsto$ ($vs_i$ \ $\pi_i$ xs $\mapsto$ $e_{i}$) ($\sigma$ $vs_i$)},
+     {...; main = addr $a_{main}$})
+  \end{lstlisting}
+   
+  \section{Code Forms}
+
+  eval $e$ $\rho$ : uses local env. $\rho$ and accesses argument stack
+
+  enter $a$ : accesses the argument stack for applying the closure at address $a$ on the heap
+
+  ReturnCon $c$ $ws$ : constructor c applied to $ws$; return it to continuation
+
+  ReturnInt $k$ : return primitive type int k to continuation
+
+  \vfill\null
+  \columnbreak
+
+  \section{Operational Semantics}
+  state transitions of STG
+
+  \subsection{eval function application}
+
+  \begin{lstlisting}
+    eval (f xs) $\rho$, as, rs, us, h, $\sigma$
+    
+    where:
+    
+      val $\rho$ $\sigma$ f = addr a
+
+    $\implies$
+
+    enter a,
+    (val $\rho$ $\sigma$ xs)++as,
+    rs,
+    us,
+    h,
+    $\sigma$
+
+    note: $\rho$ is discarded
+  \end{lstlisting}
+
+  \subsection{intermediate state: enter non-updatable closure}
+
+  \begin{lstlisting}
+    enter a,
+    as,
+    rs,
+    us,
+    h[a $\mapsto$ (vs \n xs $\mapsto$ e) ws_f],
+    $\sigma$
+
+    where:
+      len(as) $\geq$ len(xs)
+
+    $\implies$
+
+    eval e $\rho$, as', rs, us, h, $\sigma$
+
+    (eval body e of closure, in local env $\rho$)
+
+    where:
+
+      ws_a ++ as' = as // partition into 2
+
+      len(xs) = len(ws_a)
+
+      $\rho$ = [vs $\mapsto$ ws_f, xs $\mapsto$ ws_a]
+
+      (augmented local env., where free variables vs are bound to ws_f, xs are bound to arguments)
+  \end{lstlisting}
+
+  \vfill\null
+  \columnbreak
+
+  \subsection{eval let expression}
+
+  \begin{lstlisting}
+    eval (let x1 = vs1 \$\pi_1$ xs1 $\mapsto$ e1; ...; in e) $\rho$,
+    as,
+    rs,
+    us,
+    h,
+    $\sigma$
+
+    $\implies$
+
+    eval e $\rho$', as, rs, us, h', $\sigma$
+
+    where:
+
+      $\rho$' = $\rho$[x1 $\mapsto$ addr a1, ...]
+      
+      h' = h[a1 $\mapsto$ (vs1 \$\pi_1$ xs1 $\mapsto$ e1)
+             ($\rho_{rhs}$ vs1);
+             ...]
+
+      $\rho_{rhs}$ = $\rho$
+  \end{lstlisting}
+
+  \subsection{eval letrec expression}
+
+  same as eval let expression, except $\rho_{rhs}=\rho$'
+
+  \subsection{eval case expression}
+
+  push continuation onto return stack and evaluate scrutinee expression; after evaluation, continue execution at continuation (pick which alternative to execute)
+
+  \begin{lstlisting}
+    eval (case e of alts) $\rho$, as, rs, us, h, $\sigma$
+
+    $\implies$
+
+    eval e $\rho$, as, (alts, $\rho$):rs, us, h, $\sigma$
+
+    note: $\rho$ provides context for evaluating chosen alternative
+  \end{lstlisting}
+
+  \subsection{eval constructor}
+
+  eval of an expression that is specifically a constructor
+
+  use of an intermediate state: ReturnCon which then pops and resumes continuation(s) from return stack
+
+  \begin{lstlisting}
+    eval (c xs) $\rho$, as, rs, us, h, $\sigma$
+
+    $\implies$
+
+    ReturnCon c (val $\rho$ $\sigma$ xs), as, rs, us, h, $\sigma$
+  \end{lstlisting}
+
+  \vfill\null
+  \columnbreak
+
+  \subsection{intermediate state: ReturnCon}
+
+  \begin{lstlisting}
+    ReturnCon c ws,
+    as,
+    (...; c vs $\mapsto$ e; ..., $\rho$):rs,
+    us,
+    h,
+    $\sigma$
+
+    $\implies$
+
+    eval e $\rho$[vs $\mapsto$ ws], as, rs, us, h, $\sigma$
+
+    note: args to c are bound to vs in local env
+  \end{lstlisting}
+
+  handling default alternative for ReturnCon:
+
+  \begin{lstlisting}
+    ReturnCon c ws,
+    as,
+    (c1 vs1 $\mapsto$ e1; ...; default $\mapsto$ $e_d$, $\rho$):rs,
+    us,
+    h,
+    $\sigma$
+
+    where:
+
+      c $\neq$ ci, $(\forall i)$
+    
+    $\implies$
+    
+    eval $e_d$ $\rho$, as, rs, us, h, $\sigma$
+  \end{lstlisting}
+
+  handling match all variable binder pattern for ReturnCon:
+
+  \begin{lstlisting}
+    ReturnCon c ws,
+    as,
+    (c1 vs1 $\mapsto$ e1; ...; v $\mapsto$ $e_d$, $\rho$):rs, us, h, $\sigma$
+
+    where:
+
+      c $\neq$ ci, $(\forall i)$
+
+    $\implies$
+
+    eval $e_d$ $\rho$[v $\mapsto$ a], as, rs, us, h', $\sigma$
+
+    where:
+
+      h' = h[a $\mapsto$ (vs \n {} $\mapsto$ c vs) ws]
+      vs = newly introduced params/vars
+      a = newly introduced address
+      len(vs) = len(ws)
+  \end{lstlisting}
+
+  note: if there is no match to any of the above, then raise error
+  
+  \vfill\null
+  \columnbreak
+
+  \subsection{eval literal}
+
+  similar logic as constructor
+
+  use of intermediate state: ReturnInt
+
+  \begin{lstlisting}
+    eval k $\rho$, as, rs, us, h, $\sigma$
+
+    $\implies$
+
+    ReturnInt k, as, rs, us, h, $\sigma$
+  \end{lstlisting}
+
+  eval of a variable bound to a primitive value:
+  
+  \begin{lstlisting}
+    eval (f {}) $\rho$[f $\mapsto$ Int k], as, rs, us, h, $\sigma$
+
+    $\implies$
+
+    ReturnInt k, as, rs, us, h, $\sigma$
+  \end{lstlisting}
+
+  \subsection{intermediate state: ReturnInt}
+
+  purpose: search for a continuation on return stack to continue execution
+
+  \begin{lstlisting}
+    ReturnInt k,
+    as,
+    (...; k $\mapsto$ e; ..., $\rho$):rs,
+    us,
+    h,
+    $\sigma$
+
+    $\implies$
+
+    eval e $\rho$, as, rs, us, h, $\sigma$
+  \end{lstlisting}
+
+  handling alternative with default:
+
+  \begin{lstlisting}
+    ReturnInt k,
+    as,
+    (k1 $\mapsto$ e1; ...; default $\mapsto$ e, $\rho$):rs,
+    us,
+    h,
+    $\sigma$
+
+    where:
+
+      k $\neq$ ki, $(\forall i)$
+
+    $\implies$
+    
+    eval e $\rho$, as, rs, us, h, $\sigma$
+  \end{lstlisting}
+
+  handling alternative with match all binder variable:
+
+  \begin{lstlisting}
+    ReturnInt k,
+    as,
+    (k1 $\mapsto$ e1; ...; x $\mapsto$ e, $\rho$):rs,
+    us,
+    h,
+    $\sigma$
+
+    where:
+
+      k $\neq$ ki, $(\forall i)$
+
+    $\implies$
+    
+    eval e $\rho$[x $\mapsto$ Int k], as, rs, us, h, $\sigma$
+  \end{lstlisting}
+
+  \vfill\null
+  \columnbreak
+
+  \subsection{eval builtin operator}
+  for example, binary operator $\oplus$:
+
+  \begin{lstlisting}
+    eval $\oplus${x1, x2}
+      $\rho$[x1 $\mapsto$ Int i1, x2 $\mapsto$ Int i2],
+    as,
+    rs,
+    us,
+    h,
+    $\sigma$
+
+    $\implies$
+
+    ReturnInt ($\oplus$ i1 i2), as, rs, us, h, $\sigma$
+  \end{lstlisting}
+
+  \vfill\null
+  \columnbreak
+
+  \section{Update Mechanics}
+
+  applicable for updatable closure / thunk
+
+  2 stages:
+
+  1) updatable closure is entered
+
+  \begin{lstlisting}
+    enter a,
+    as,
+    rs,
+    us,
+    h[a $\mapsto$ (vs \u {} $\mapsto$ e) $ws_f$],
+    $\sigma$
+
+    note:
+
+      u denotes updatable closure
+
+      only closure with no arguments is ever qualified for being updatable
+
+    $\implies$
+
+    eval e $\rho$, [], [], (as,rs,a):us, h, $\sigma$
+
+    where:
+
+      $\rho$ = [vs $\mapsto$ $ws_f$]
+
+      arg. and return stacks are empty
+
+      similar to entering a non-updatable closure, except we push items onto the update stack
+  \end{lstlisting}
+
+  2) after eval. of closure is done
+
+  update is triggered via either:
+
+  i) value of closure is data constructor (note: closures never evaluate to unboxed/primitive literals, so unboxed values are not stored in closures / thunks, so ReturnInt state is expected to have non-empty return stack and never triggers update):
+
+  try pop continuation from return stack, but the stack is empty $\implies$ triggers update
+
+  ii) value of closure is a function:
+
+  function tries to bind arguments, but the argument stack does not have enough arguments $\implies$ triggers update
+
+  \vfill\null
+  \columnbreak
+
+  \subsection{update mechanics: when the updatable closure is a data constructor}
+  evaluation of closure is data constructor: try pop continuation from return stack, but the stack is empty $\implies$ triggering an update
+
+  closure referenced by the update frame is updated, where arg. stack and return stack are restored from update frame, and then try again (possibly trigger another update if return stack is still empty... until the stack is non-empty and a continuation is exposed)
+
+  \begin{lstlisting}
+    ReturnCon c ws, [], [], (as_u, rs_u, a_u):us, h, $\sigma$
+
+    note:
+
+      arg. and return stacks are empty
+
+    $\implies$
+
+    ReturnCon c ws, as_u, rs_u, us, h_u, $\sigma$
+
+    (updating closure a_u with a constructor closure)
+
+    where:
+
+      h_u = h[a_u $\mapsto$ (vs \n {} $\mapsto$ c vs) ws]
+
+      len(vs) = len(ws)
+
+      vs $\equiv$ newly introduced params/vars
+
+    note:
+
+      no closure has a primitive type: ReturnInt state won't see any empty return stack
+  \end{lstlisting}
+
+  \vfill\null
+  \columnbreak
+
+  \subsection{update mechanics: when the updatable closure is a partial application}
+
+  handle the case where there are not enough arguments on the argument stack for the lambda abstraction
+
+  \begin{lstlisting}
+    enter a, as, [], (as_u, rs_u, a_u):us, h, $\sigma$
+
+    where:
+
+      len(as) < len(xs)
+
+      h a = (vs \n xs $\mapsto$ e) ws_f
+
+      len(xs) > 0 $\implies$ non-updatable
+
+    $\implies$
+
+    enter a, as++as_u, rs_u, us, h', $\sigma$
+
+    (retry entering a again)
+
+    where:
+
+      h' = h[a_u $\mapsto$ (vs++xs1 \n xs2 $\mapsto$ e) (ws_f ++ as)]
+
+      xs1 ++ xs2 = xs
+
+      len(xs1) = len(as)
+
+      a is referring to the closure that is originally produced from updatable closure/thunk a_u's body
+      h' is updated for future use: what is in closure 'a' is inlined into 'a_u' plus adjustments for partial application
+  \end{lstlisting}
+
+  in order to avoid compiling code for the body for every possible partial application, an alternative form:
+
+  \begin{lstlisting}
+    enter a, as, [], (as_u, rs_u, a_u):us, h, $\sigma$
+
+    where:
+
+      len(as) < len(xs)
+
+      h a = (vs \n xs $\mapsto$ e) ws_f
+
+      len(xs) > 0 $\implies$ non-updatable
+
+    $\implies$
+
+    enter a, as++as_u, rs_u, us, h_u, $\sigma$
+
+    where:
+      h_u = h[a_u $\mapsto$ ((f:xs1) \n {} $\mapsto$ f xs1) (a:as)]
+
+      xs1++xs2 = xs
+
+      len(xs1) = len(as)
+
+      f $\equiv$ newly introduced variable
+
+      ((f:xs1) \n {} $\mapsto$ f xs1) $\equiv$ sharable code for all partial applications with the same number of arguments 'xs1' $\implies$ create a set of such code covering different arities that can be used by any partial application with matching number of arguments
+  \end{lstlisting}
+
+  \vfill\null
+  \columnbreak
+
+\bibliographystyle{plain}
+\bibliography{notebook}
+    
+\end{multicols*}
+
+\end {document}
