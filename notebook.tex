@@ -84,15 +84,17 @@
 
   \section{Preliminary}
 
-  Condensed notes from references:
+  Condensed notes from references,
   \begin{itemize}
   \item The Implementation of Functional Programming Languages \cite{peyton1987}
   \item Implementing Lazy Functional Languages on Stock Hardware: The Spineless Tagless G-machine \cite{peyton1992}
   \end{itemize}
+  , focusing on abstract machine operational semantics.
 
   Notation:
 
   \begin{lstlisting}
+    $\rho \equiv$ local env
     $\rho$[x $\mapsto$ y] $\equiv$ augmenting env $\rho$ with additional mapping x $\mapsto$ y
 
     val $\rho$ $\sigma$ k = k, k is a literal
@@ -116,11 +118,11 @@
 
   \begin{itemize}
   \item code
-  \item argument stack: for formal parameters of lambdas
-  \item return stack: for continuations
-  \item update stack: for updatable closure / thunk
-  \item heap: for locals, closures
-  \item globals: for top-level variables/binders
+  \item $as \equiv$ argument stack: for actual arguments of lambdas
+  \item $rs \equiv$ return stack: for continuations
+  \item $us \equiv$ update stack: for updatable closure / thunk
+  \item $h \equiv$ heap: for locals, closures
+  \item $\sigma \equiv$ globals: for top-level variables/binders
   \end{itemize}
 
   initial state:
@@ -192,13 +194,15 @@
 
     where:
 
-      ws_a ++ as' = as // partition into 2
+      ws_a ++ as' = as // partition into 2, where ws_a are the actual arguments bound to formal parameters xs
 
       len(xs) = len(ws_a)
 
       $\rho$ = [vs $\mapsto$ ws_f, xs $\mapsto$ ws_a]
 
       (augmented local env., where free variables vs are bound to ws_f, xs are bound to arguments)
+
+      heap h is unchanged after transition
   \end{lstlisting}
 
   \vfill\null
@@ -206,6 +210,8 @@
 
   \subsection{eval let expression}
 
+  allocate closures on the heap for let bindings, extend local env with let binding heap addresses, then evaluate the body of the let expression
+  
   \begin{lstlisting}
     eval (let x1 = vs1 \$\pi_1$ xs1 $\mapsto$ e1; ...; in e) $\rho$,
     as,
@@ -227,6 +233,9 @@
              ...]
 
       $\rho_{rhs}$ = $\rho$
+
+    note:
+      this step converts static variable names into runtime values for free variable payload via ($\rho_{rhs}$ vs1); this is where heap allocation occurs
   \end{lstlisting}
 
   \subsection{eval letrec expression}
@@ -251,7 +260,7 @@
 
   eval of an expression that is specifically a constructor
 
-  use of an intermediate state: ReturnCon which then pops and resumes continuation(s) from return stack
+  use of an intermediate state: ReturnCon which pops and resumes continuation(s) from return stack
 
   \begin{lstlisting}
     eval (c xs) $\rho$, as, rs, us, h, $\sigma$
@@ -266,6 +275,8 @@
 
   \subsection{intermediate state: ReturnCon}
 
+  choose which alternative to resume execution from the return stack based on matching constructor
+
   \begin{lstlisting}
     ReturnCon c ws,
     as,
@@ -278,7 +289,11 @@
 
     eval e $\rho$[vs $\mapsto$ ws], as, rs, us, h, $\sigma$
 
-    note: args to c are bound to vs in local env
+    note:
+
+      args to c are bound to vs in local env
+
+      continuations are pushed onto the return stack earlier
   \end{lstlisting}
 
   handling default alternative for ReturnCon:
@@ -316,7 +331,7 @@
     eval $e_d$ $\rho$[v $\mapsto$ a], as, rs, us, h', $\sigma$
 
     where:
-
+      // introduce closure for constructor
       h' = h[a $\mapsto$ (vs \n {} $\mapsto$ c vs) ws]
       vs = newly introduced params/vars
       a = newly introduced address
@@ -411,7 +426,7 @@
   \columnbreak
 
   \subsection{eval builtin operator}
-  for example, binary operator $\oplus$:
+  for example, binary operator $\oplus$ with primitive int parameters:
 
   \begin{lstlisting}
     eval $\oplus${x1, x2}
@@ -432,7 +447,9 @@
 
   \section{Update Mechanics}
 
-  applicable for updatable closure / thunk
+  this is applicable for updatable closure / thunk
+
+  technique: implicitly detect that an update needs is required when empty return stack is encountered during constructor return, or when insufficient arguments are on argument stack when entering a function closure
 
   2 stages:
 
@@ -465,7 +482,7 @@
       similar to entering a non-updatable closure, except we push items onto the update stack
   \end{lstlisting}
 
-  2) after eval. of closure is done
+  2) after eval of closure corresponding to body of original thunk/closure is done
 
   update is triggered via either:
 
@@ -527,13 +544,13 @@
 
       h a = (vs \n xs $\mapsto$ e) ws_f
 
-      len(xs) > 0 $\implies$ non-updatable
+      len(xs) > 0 $\implies$ non-updatable closure
 
     $\implies$
 
     enter a, as++as_u, rs_u, us, h', $\sigma$
 
-    (retry entering a again)
+    (restore arg. and return stacks, update closure a_u in the heap, then retry entering a)
 
     where:
 
@@ -543,11 +560,25 @@
 
       len(xs1) = len(as)
 
+      xs1 are transferred to be free variables from original formal parameters of lambda along with arguments 'as'
+
+      xs2 are remaining formal parameters
+
       a is referring to the closure that is originally produced from updatable closure/thunk a_u's body
+
       h' is updated for future use: what is in closure 'a' is inlined into 'a_u' plus adjustments for partial application
+
+      a_u is the updatable thunk/closure
   \end{lstlisting}
 
-  in order to avoid compiling code for the body for every possible partial application, an alternative form:
+  \vfill\null
+  \columnbreak
+
+  in order to avoid compiling code for the body, $e$, for every possible partial application
+  \begin{lstlisting}
+    (vs++xs1 \n xs2 $\mapsto$ e)
+  \end{lstlisting}
+  , an alternative form exists that reuses closure 'a' being entered within the new updated closure:
 
   \begin{lstlisting}
     enter a, as, [], (as_u, rs_u, a_u):us, h, $\sigma$
@@ -558,7 +589,7 @@
 
       h a = (vs \n xs $\mapsto$ e) ws_f
 
-      len(xs) > 0 $\implies$ non-updatable
+      len(xs) > 0
 
     $\implies$
 
