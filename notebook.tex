@@ -95,7 +95,8 @@
 
   \begin{lstlisting}
     $\rho \equiv$ local env
-    $\rho$[x $\mapsto$ y] $\equiv$ augmenting env $\rho$ with additional mapping x $\mapsto$ y
+    $\rho^{\prime} = \rho$[x $\mapsto$ y] $\equiv$ new env with the old env $\rho$ plus additional mapping x $\mapsto$ y
+    $\rho$[x $\mapsto$ y] $\equiv$ env $\rho$ with mapping x $\mapsto$ y present (eg: read the env only)
 
     val $\rho$ $\sigma$ k = k, k is a literal
     val $\rho$ $\sigma$ k = $\rho$[k], k is in $\rho$
@@ -108,7 +109,6 @@
     h as $\equiv$ [h a for a in as]
 
     (vs \n xs $\mapsto$ e) ws_f $\equiv$ closure that is non-updatable, with parameters xs and free variable parameters vs bound with values ws_f; note: closure with len(xs) > 0 $\implies$ it is non-updatable
-
     (vs \u {} $\mapsto$ e) ws_f $\equiv$ closure that is updatable
   \end{lstlisting}
   
