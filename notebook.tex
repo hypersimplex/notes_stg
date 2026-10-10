@@ -236,6 +236,8 @@
 
     note:
       this step converts static variable names into runtime values for free variable payload via ($\rho_{rhs}$ vs1); this is where heap allocation occurs
+
+      references to bound variables (to heap allocated closures) typically result in generation of compiled code to access the variables in actual implemenation
   \end{lstlisting}
 
   \subsection{eval letrec expression}
@@ -328,7 +330,7 @@
 
     $\implies$
 
-    eval $e_d$ $\rho$[v $\mapsto$ a], as, rs, us, h', $\sigma$
+    eval $e_d$ $\rho$[v $\mapsto$ addr a], as, rs, us, h', $\sigma$
 
     where:
       // introduce closure for constructor
@@ -449,7 +451,7 @@
 
   this is applicable for updatable closure / thunk
 
-  technique: implicitly detect that an update needs is required when empty return stack is encountered during constructor return, or when insufficient arguments are on argument stack when entering a function closure
+  technique: detect that an update needs is required when empty return stack is encountered during constructor return, or when insufficient arguments are on argument stack when entering a function closure
 
   2 stages:
 
