@@ -345,11 +345,9 @@
   \vfill\null
   \columnbreak
 
-  \subsection{eval literal}
+  \subsection{eval literal (or any other primitive)}
 
-  similar logic as constructor
-
-  use of intermediate state: ReturnInt
+  similar logic as constructor; use of intermediate state: ReturnInt / ReturnPrim
 
   \begin{lstlisting}
     eval k $\rho$, as, rs, us, h, $\sigma$
@@ -369,7 +367,7 @@
     ReturnInt k, as, rs, us, h, $\sigma$
   \end{lstlisting}
 
-  \subsection{intermediate state: ReturnInt}
+  \subsection{intermediate state: ReturnInt (generalizes to ReturnPrim for any unboxed primitive literal/op)}
 
   purpose: search for a continuation on return stack to continue execution
 
