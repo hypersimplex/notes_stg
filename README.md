@@ -1,2 +1,2 @@
 # notes_stg
-notes on STG abstract machine and related topics
+notes on Haskell GHC's STG abstract machine and related topics
